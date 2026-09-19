@@ -10,16 +10,22 @@ let reconnectTimer = null;
 let clientId = null;
 const contentTabs = new Set();
 let latestState = null;
+let initialization;
+
+const debug = (...args) => console.info("[GuguTV WS]", ...args);
 
 async function initialize() {
   const stored = await chrome.storage.local.get(["clientId", "roomId"]);
   clientId = stored.clientId || crypto.randomUUID();
   if (!stored.clientId) await chrome.storage.local.set({ clientId });
+  debug("initialized", { clientId, roomId: stored.roomId || null });
   if (stored.roomId) joinRoom(stored.roomId);
 }
 
 function broadcastStatus() {
-  chrome.runtime.sendMessage({ kind: "CONNECTION_STATUS", roomId, connectionState }).catch(() => {});
+  const payload = { kind: "CONNECTION_STATUS", roomId, connectionState };
+  chrome.runtime.sendMessage(payload).catch(() => {});
+  for (const tabId of contentTabs) chrome.tabs.sendMessage(tabId, payload).catch(() => contentTabs.delete(tabId));
 }
 
 function setConnectionState(next) {
@@ -35,6 +41,7 @@ async function joinRoom(value) {
   if (!validRoomId(nextRoom)) throw new Error("Room IDs must contain 4–12 letters or numbers.");
   roomId = nextRoom;
   latestState = null;
+  debug("joining room", roomId);
   await chrome.storage.local.set({ roomId });
   clearTimeout(reconnectTimer);
   reconnectTimer = null;
@@ -45,6 +52,7 @@ async function joinRoom(value) {
 async function leaveRoom() {
   roomId = null;
   latestState = null;
+  debug("leaving room");
   await chrome.storage.local.remove("roomId");
   clearTimeout(reconnectTimer);
   reconnectTimer = null;
@@ -57,17 +65,19 @@ function connect() {
   if (!roomId || !clientId) return;
   setConnectionState(socket ? "RECONNECTING" : "CONNECTING");
   const url = `${DEFAULT_SERVER_URL}?room=${encodeURIComponent(roomId)}&clientId=${encodeURIComponent(clientId)}`;
+  debug("connecting", { roomId, state: connectionState });
   try { socket = new WebSocket(url); } catch (error) { scheduleReconnect(); return; }
-  socket.onopen = () => { reconnectDelay = INITIAL_BACKOFF_MS; setConnectionState("CONNECTED"); };
+  socket.onopen = () => { reconnectDelay = INITIAL_BACKOFF_MS; setConnectionState("CONNECTED"); debug("connected", roomId); };
   socket.onmessage = (message) => handleServerMessage(message.data);
   socket.onerror = () => socket?.close();
-  socket.onclose = () => { socket = null; if (roomId) scheduleReconnect(); };
+  socket.onclose = () => { debug("socket closed", roomId); socket = null; if (roomId) scheduleReconnect(); };
 }
 
 function scheduleReconnect() {
   if (reconnectTimer || !roomId) return;
   setConnectionState("RECONNECTING");
   const delay = reconnectDelay;
+  debug("reconnecting in", delay, "ms");
   reconnectDelay = Math.min(reconnectDelay * 2, MAX_BACKOFF_MS);
   reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, delay);
 }
@@ -78,20 +88,29 @@ function handleServerMessage(raw) {
   if (!event || (event.type !== "STATE" && !["PLAY", "PAUSE", "SEEK"].includes(event.type))) return;
   if (event.senderId === clientId) return;
   if (event.type === "STATE") latestState = event;
+  debug("received", event.type, "position=", event.position, "sequence=", event.sequence);
   for (const tabId of contentTabs) chrome.tabs.sendMessage(tabId, { kind: "REMOTE_EVENT", event }).catch(() => contentTabs.delete(tabId));
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.tab?.id) contentTabs.add(sender.tab.id);
   if (message?.kind === "LOCAL_EVENT") {
-    if (socket?.readyState === WebSocket.OPEN && roomId && message.event?.roomId === roomId) socket.send(JSON.stringify(message.event));
+    if (socket?.readyState === WebSocket.OPEN && roomId && message.event?.roomId === roomId) {
+      debug("sending", message.event.type, "position=", message.event.position);
+      socket.send(JSON.stringify(message.event));
+    } else {
+      debug("dropped local event while disconnected", message.event?.type);
+    }
     return;
   }
-  if (message?.kind === "CONTENT_READY") { sendResponse({ roomId, connectionState, clientId, latestEvent: latestState }); return; }
+  if (message?.kind === "CONTENT_READY") {
+    initialization.then(() => sendResponse({ roomId, connectionState, clientId, latestEvent: latestState }));
+    return true;
+  }
   if (message?.kind === "GET_STATUS") { sendResponse({ roomId, connectionState }); return; }
   if (message?.kind === "JOIN_ROOM") { joinRoom(message.roomId).then(() => sendResponse({ ok: true })).catch(error => sendResponse({ ok: false, error: error.message })); return true; }
   if (message?.kind === "LEAVE_ROOM") { leaveRoom().then(() => sendResponse({ ok: true })); return true; }
 });
 
 chrome.tabs.onRemoved.addListener(tabId => contentTabs.delete(tabId));
-initialize();
+initialization = initialize();

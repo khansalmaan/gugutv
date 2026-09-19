@@ -9,7 +9,7 @@
   let pendingEvent = null;
   const processedEvents = new Set();
 
-  const debug = (...args) => console.debug("[Watch Party]", ...args);
+  const debug = (...args) => console.info("[GuguTV Sync]", ...args);
   const isSuppressed = () => applyingRemoteEvent || Date.now() < suppressEventsUntil;
   const makeID = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 
@@ -28,7 +28,10 @@
   }
 
   function emitLocalEvent(type) {
-    if (!roomId || !clientId || !currentVideo || isSuppressed()) return;
+    if (!roomId || !clientId || !currentVideo || isSuppressed()) {
+      if (currentVideo && !isSuppressed()) debug("ignored local event; no active room or client id", type);
+      return;
+    }
     const event = { id: makeID(), senderId: clientId, roomId, type, position: new HTML5VideoAdapter(currentVideo).getPosition(), timestamp: Date.now() };
     debug("local", type, event.position);
     chrome.runtime.sendMessage({ kind: "LOCAL_EVENT", event }).catch(() => {});
@@ -63,11 +66,24 @@
     }
   }
 
+  function changeRoom(nextRoomId) {
+    if (roomId === nextRoomId) return;
+    debug("room changed; resetting video synchronization", { from: roomId, to: nextRoomId });
+    // A room has its own event order. Reattach rather than carrying listeners
+    // and deduplication state from a previous synchronization session.
+    detachVideo();
+    roomId = nextRoomId;
+    lastSequence = 0;
+    processedEvents.clear();
+    pendingEvent = null;
+    findVideo();
+  }
+
   async function applyRemoteEvent(event) {
     if (!event || event.senderId === clientId) return;
-    if (!currentVideo) { pendingEvent = event; return; }
-    if (event.id && processedEvents.has(event.id)) return;
-    if (event.sequence && event.sequence <= lastSequence) return;
+    if (!currentVideo) { debug("queued remote event until video appears", event.type); pendingEvent = event; return; }
+    if (event.id && processedEvents.has(event.id)) { debug("ignored duplicate remote event", event.id); return; }
+    if (event.sequence && event.sequence <= lastSequence) { debug("ignored out-of-order remote event", event.sequence); return; }
     if (!Number.isFinite(event.position) || event.position < 0) return;
     remember(event.id);
     if (event.sequence) lastSequence = event.sequence;
@@ -81,18 +97,19 @@
       else if (type === "PAUSE") adapter.pause(event.position);
       else adapter.seek(event.position);
       debug("remote", type, event.position);
-    } catch (error) { console.warn("[Watch Party] remote playback action failed", error); }
+    } catch (error) { console.warn("[GuguTV] remote playback action failed", error); }
     finally { applyingRemoteEvent = false; }
   }
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.kind === "REMOTE_EVENT") applyRemoteEvent(message.event);
-    if (message?.kind === "CONNECTION_STATUS") roomId = message.roomId;
+    if (message?.kind === "CONNECTION_STATUS") changeRoom(message.roomId || null);
   });
 
   chrome.runtime.sendMessage({ kind: "CONTENT_READY" }).then(status => {
-    roomId = status?.roomId || null;
+    changeRoom(status?.roomId || null);
     clientId = status?.clientId || null;
+    debug("ready", { roomId, clientId });
     if (status?.latestEvent) applyRemoteEvent(status.latestEvent);
   }).catch(() => {});
   new MutationObserver(findVideo).observe(document.documentElement, { childList: true, subtree: true });

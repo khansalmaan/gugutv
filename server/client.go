@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ func newClient(id string, room *Room, conn *websocket.Conn) *Client {
 
 func (c *Client) close(manager *RoomManager) {
 	c.onClose.Do(func() {
+		log.Printf("[WS] client=%s left room=%s", c.ID, c.Room.ID)
 		manager.removeClient(c.Room.ID, c)
 		// Do not close Send here: a broadcaster may have already taken a
 		// snapshot of room clients. Closing it would turn that harmless stale

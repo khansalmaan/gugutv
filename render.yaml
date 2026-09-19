@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: gugutv-server
+    runtime: go
+    plan: free
+    rootDir: server
+    buildCommand: go build -o app .
+    startCommand: ./app
+    healthCheckPath: /healthz
+    envVars:
+      - key: GOFLAGS
+        value: -mod=mod

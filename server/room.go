@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"sync"
 )
 
@@ -62,6 +63,7 @@ func (r *Room) publish(sender *Client, event Event) {
 		}
 	}
 	r.mu.Unlock()
+	log.Printf("[SYNC] room=%s sequence=%d sender=%s type=%s position=%.3f recipients=%d", r.ID, event.Sequence, sender.ID, event.Type, event.Position, len(recipients))
 	for _, client := range recipients {
 		select {
 		case client.Send <- payload:
