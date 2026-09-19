@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="popup.css"><title>Watch Party Sync</title></head>
+  <body>
+    <main>
+      <h1>Watch Party</h1>
+      <label for="room">Room ID</label>
+      <input id="room" maxlength="12" autocomplete="off" placeholder="ABCD12">
+      <p id="status" class="status disconnected">● Disconnected</p>
+      <div class="actions"><button id="join" type="button">Join room</button><button id="leave" type="button" class="secondary">Leave</button></div>
+      <p id="error" role="alert"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

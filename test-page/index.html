@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Watch Party Test Video</title>
+    <style>body{font:16px system-ui,sans-serif;max-width:800px;margin:3rem auto;padding:0 1rem}video{display:block;width:100%;margin-top:1rem;background:#111}</style>
+  </head>
+  <body>
+    <h1>Watch Party test page</h1>
+    <p>Choose the same local video file in two browser windows, then join the same extension room.</p>
+    <label>Choose video <input id="file" type="file" accept="video/*"></label>
+    <video id="video" controls></video>
+    <script>
+      const input = document.querySelector('#file'); const video = document.querySelector('#video');
+      input.addEventListener('change', () => { const file = input.files[0]; if (file) video.src = URL.createObjectURL(file); });
+    </script>
+  </body>
+</html>

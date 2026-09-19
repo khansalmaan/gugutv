@@ -1,0 +1,11 @@
+:root { color-scheme: light dark; font: 14px system-ui, sans-serif; }
+body { width: 260px; margin: 0; }
+main { padding: 16px; }
+h1 { font-size: 18px; margin: 0 0 16px; }
+label, input, button { display: block; width: 100%; box-sizing: border-box; }
+label { margin-bottom: 5px; font-weight: 600; }
+input { padding: 8px; text-transform: uppercase; }
+.status { margin: 12px 0; font-weight: 600; }
+.connected { color: #198754; }.connecting, .reconnecting { color: #b7791f; }.disconnected { color: #777; }
+.actions { display: flex; gap: 8px; }.actions button { padding: 8px; cursor: pointer; }.secondary { opacity: .8; }
+#error { min-height: 1em; color: #c22; margin: 10px 0 0; }

@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Watch Party Sync",
+  "version": "0.1.0",
+  "description": "Synchronize HTML5 video playback with a room.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["http://localhost:8080/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "Watch Party Sync" },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:8081/*", "http://127.0.0.1:8081/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
