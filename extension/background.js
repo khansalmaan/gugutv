@@ -1,4 +1,4 @@
-const DEFAULT_SERVER_URL = "ws://localhost:8080/ws";
+const DEFAULT_SERVER_URL = "wss://gugutv.onrender.com/ws";
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
 

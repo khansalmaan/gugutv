@@ -4,14 +4,15 @@
   "version": "0.1.0",
   "description": "Synchronize HTML5 video playback with a room.",
   "permissions": ["storage", "activeTab"],
-  "host_permissions": ["http://localhost:8080/*"],
+  "host_permissions": ["https://gugutv.onrender.com/*"],
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html", "default_title": "GuguTV" },
   "content_scripts": [
     {
-      "matches": ["http://localhost:8081/*", "http://127.0.0.1:8081/*"],
+      "matches": ["http://localhost:8081/*", "http://127.0.0.1:8081/*", "*://*.hotstar.com/*"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }
