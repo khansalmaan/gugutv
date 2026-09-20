@@ -23,6 +23,27 @@
   const AD_BREAK_POSITIONS = [0, 10, 15, 20, 30];
   const isAdBreakEvent = (position) => AD_BREAK_POSITIONS.some(p => Math.abs(position - p) < 0.5);
 
+  // If the extension is reloaded/updated while this tab is already open, the
+  // content script's channel to the background script is permanently severed
+  // ("Extension context invalidated") — there is no way to reconnect it from
+  // here, only a page reload creates a fresh, valid content script. Without
+  // this banner that failure is silent: sync just stops working with no clue
+  // why.
+  function showReloadNeededBanner() {
+    if (document.getElementById("gugutv-reload-banner")) return;
+    const banner = document.createElement("div");
+    banner.id = "gugutv-reload-banner";
+    banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;gap:12px;background:#dc2626;color:#fff;font:13px/1.4 system-ui,sans-serif;padding:10px 16px;";
+    const text = document.createElement("span");
+    text.textContent = "GuguTV lost connection to the extension. Refresh this page to restore sync.";
+    const reload = document.createElement("button");
+    reload.textContent = "Refresh now";
+    reload.style.cssText = "border:none;border-radius:6px;padding:6px 12px;background:#fff;color:#dc2626;font:inherit;font-weight:700;cursor:pointer;";
+    reload.addEventListener("click", () => location.reload());
+    banner.append(text, reload);
+    document.documentElement.appendChild(banner);
+  }
+
   function remember(id) {
     if (!id) return;
     processedEvents.add(id);
@@ -76,7 +97,7 @@
     if (isAdBreakEvent(position)) { debug("ignored likely ad event", type, position); return; }
     const event = { id: makeID(), senderId: clientId, roomId, type, position, timestamp: Date.now() };
     debug("local", type, event.position);
-    chrome.runtime.sendMessage({ kind: "LOCAL_EVENT", event }).catch(() => {});
+    chrome.runtime.sendMessage({ kind: "LOCAL_EVENT", event }).catch(showReloadNeededBanner);
   }
 
   function emitLocalEvent(type) {
@@ -114,12 +135,21 @@
 
   function selectVideo() {
     // Some players (e.g. Prime Video) keep extra empty <video> placeholders
-    // alongside the real player. Only elements with an actual source are
-    // candidates; among those, prefer the largest (the real player, not an
-    // ad/thumbnail slot).
+    // alongside the real player, and can also autoplay a trailer/preview on
+    // a title's detail page right before the actual movie starts. Only
+    // elements with an actual source are candidates; among those, prefer
+    // the longest duration (a trailer runs a couple of minutes, the real
+    // movie/episode runs much longer — a behavioral signal that holds
+    // regardless of any site's DOM structure), falling back to the largest
+    // by area when duration isn't known yet (e.g. metadata still loading).
     const candidates = [...document.querySelectorAll("video")].filter(v => v.currentSrc);
     if (!candidates.length) return null;
-    return candidates.reduce((best, v) => (v.videoWidth * v.videoHeight > best.videoWidth * best.videoHeight ? v : best));
+    return candidates.reduce((best, v) => {
+      const bestDuration = Number.isFinite(best.duration) ? best.duration : 0;
+      const duration = Number.isFinite(v.duration) ? v.duration : 0;
+      if (duration !== bestDuration) return duration > bestDuration ? v : best;
+      return v.videoWidth * v.videoHeight > best.videoWidth * best.videoHeight ? v : best;
+    });
   }
 
   function findVideo() {
@@ -188,17 +218,27 @@
     eventQueue = eventQueue.then(() => applyRemoteEvent(event));
   }
 
+  function refreshVideoSync() {
+    debug("manual refresh requested; reattaching video listeners");
+    // detachVideo() nulls out currentVideo, so the next findVideo() call
+    // reattaches even if selectVideo() finds the exact same element.
+    detachVideo();
+    findVideo();
+  }
+
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.kind === "REMOTE_EVENT") queueRemoteEvent(message.event);
     if (message?.kind === "CONNECTION_STATUS") changeRoom(message.roomId || null);
+    if (message?.kind === "REFRESH_SYNC") refreshVideoSync();
   });
 
   chrome.runtime.sendMessage({ kind: "CONTENT_READY" }).then(status => {
     changeRoom(status?.roomId || null);
     clientId = status?.clientId || null;
     debug("ready", { roomId, clientId });
+    if (!clientId) showReloadNeededBanner();
     if (status?.latestEvent) queueRemoteEvent(status.latestEvent);
-  }).catch(() => {});
+  }).catch(showReloadNeededBanner);
   new MutationObserver(findVideo).observe(document.documentElement, { childList: true, subtree: true });
   // The real <video> element's `src` can populate asynchronously without a
   // DOM mutation the observer above would see (e.g. Prime Video setting a

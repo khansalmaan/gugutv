@@ -1,14 +1,45 @@
 <!doctype html>
 <html lang="en">
-  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="popup.css"><title>GuguTV</title></head>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="popup.css">
+    <title>GuguTV</title>
+  </head>
   <body>
     <main>
-      <h1>GuguTV</h1>
-      <label for="room">Room ID</label>
-      <input id="room" maxlength="12" autocomplete="off" placeholder="ABCD12">
-      <p id="status" class="status disconnected">● Disconnected</p>
-      <div class="actions"><button id="join" type="button">Join room</button><button id="leave" type="button" class="secondary">Leave</button></div>
-      <p id="error" role="alert"></p>
+      <header>
+        <h1>GuguTV</h1>
+        <p id="status" class="status disconnected">Disconnected</p>
+      </header>
+      <nav class="tabs">
+        <button type="button" class="tab active" data-tab="sync">Sync</button>
+        <button type="button" class="tab" data-tab="info">Info</button>
+      </nav>
+      <section id="tab-sync" class="tab-panel">
+        <label for="room">Room ID</label>
+        <input id="room" maxlength="12" autocomplete="off" placeholder="ABCD12">
+        <div class="actions">
+          <button id="join" type="button" class="primary">Join room</button>
+          <button id="leave" type="button" class="secondary" hidden>Leave</button>
+          <button id="refresh" type="button" class="icon-button" title="Re-sync video listeners" aria-label="Refresh sync">Refresh </button>
+        </div>
+        <p id="error" role="alert"></p>
+      </section>
+      <section id="tab-info" class="tab-panel" hidden>
+        <h2>Supported sites</h2>
+        <ul class="site-list">
+          <li>Disney+ Hotstar</li>
+          <li>Amazon Prime Video</li>
+        </ul>
+        <h2>How it works</h2>
+        <ol class="steps">
+          <li>Open a supported video site in each participant's browser.</li>
+          <li>One person picks a Room ID and shares it; everyone else enters it here and clicks Join room.</li>
+          <li>Play, pause and seek then sync automatically for everyone in the room.</li>
+          <li>If playback ever looks stuck or out of sync (e.g. right after an ad), click the ⟳ button to re-attach.</li>
+        </ol>
+      </section>
     </main>
     <script src="popup.js"></script>
   </body>

@@ -1,11 +1,63 @@
-:root { color-scheme: light dark; font: 14px system-ui, sans-serif; }
-body { width: 260px; margin: 0; }
-main { padding: 16px; }
-h1 { font-size: 18px; margin: 0 0 16px; }
-label, input, button { display: block; width: 100%; box-sizing: border-box; }
-label { margin-bottom: 5px; font-weight: 600; }
-input { padding: 8px; text-transform: uppercase; }
-.status { margin: 12px 0; font-weight: 600; }
-.connected { color: #198754; }.connecting, .reconnecting { color: #b7791f; }.disconnected { color: #777; }
-.actions { display: flex; gap: 8px; }.actions button { padding: 8px; cursor: pointer; }.secondary { opacity: .8; }
-#error { min-height: 1em; color: #c22; margin: 10px 0 0; }
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --surface: #f9fafb;
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --danger: #dc2626;
+  --success: #16a34a;
+  --warning: #d97706;
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181c;
+    --fg: #f2f2f2;
+    --muted: #9aa0aa;
+    --border: #2b2d33;
+    --surface: #202127;
+  }
+}
+
+* { box-sizing: border-box; }
+body { width: 300px; margin: 0; background: var(--bg); color: var(--fg); }
+main { padding: 18px; }
+
+header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
+h1 { font-size: 16px; margin: 0; letter-spacing: .2px; }
+
+.tabs { display: flex; gap: 4px; margin-bottom: 14px; background: var(--surface); border-radius: 8px; padding: 3px; }
+.tab { flex: 1; border: none; background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.tab.active { background: var(--bg); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+.tab-panel h2 { font-size: 12px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); }
+.tab-panel h2:not(:first-child) { margin-top: 16px; }
+.site-list, .steps { margin: 0; padding-left: 20px; }
+.site-list li, .steps li { margin-bottom: 6px; }
+
+.status { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 4px 10px; border-radius: 999px; background: var(--surface); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+.status.connected { color: var(--success); }
+.status.connecting, .status.reconnecting { color: var(--warning); }
+.status.disconnected { color: var(--muted); }
+
+label { display: block; margin: 0 0 6px; font-weight: 600; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+input { display: block; width: 100%; padding: 10px 12px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; text-transform: uppercase; letter-spacing: 1px; }
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.actions { display: flex; gap: 8px; align-items: stretch; }
+.actions button { border: none; border-radius: 8px; padding: 10px 12px; font: inherit; font-weight: 600; cursor: pointer; }
+.primary, .secondary { flex: 1; }
+.primary { background: var(--accent); color: var(--accent-fg); }
+.primary:hover { filter: brightness(1.08); }
+.secondary { background: var(--surface); color: var(--danger); border: 1px solid var(--border); }
+.secondary:hover { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); }
+.icon-button { flex: 0 0 auto; padding: 10px 16px; background: var(--surface); color: var(--fg); border: 1px solid var(--border); font-size: 13px; font-weight: 600; line-height: 1; white-space: nowrap; display: flex; align-items: center; justify-content: center; }
+.icon-button:hover { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.icon-button:disabled { opacity: .7; cursor: default; }
+
+#error { min-height: 1em; color: var(--danger); margin: 10px 0 0; font-size: 12px; }

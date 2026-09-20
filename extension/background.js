@@ -129,6 +129,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.kind === "GET_STATUS") { sendResponse({ roomId, connectionState }); return; }
   if (message?.kind === "JOIN_ROOM") { joinRoom(message.roomId).then(() => sendResponse({ ok: true })).catch(error => sendResponse({ ok: false, error: error.message })); return true; }
   if (message?.kind === "LEAVE_ROOM") { leaveRoom().then(() => sendResponse({ ok: true })); return true; }
+  if (message?.kind === "REFRESH_SYNC") {
+    debug("relaying manual refresh to content tabs", contentTabs.size);
+    for (const tabId of contentTabs) chrome.tabs.sendMessage(tabId, { kind: "REFRESH_SYNC" }).catch(() => contentTabs.delete(tabId));
+    sendResponse({ ok: true });
+    return;
+  }
 });
 
 chrome.tabs.onRemoved.addListener(tabId => contentTabs.delete(tabId));
