@@ -2,6 +2,8 @@ const DEFAULT_SERVER_URL = "wss://gugutv.onrender.com/ws";
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
 
+const HEALTH_CHECK_ALARM = "gugutv-health-check";
+
 let socket = null;
 let roomId = null;
 let connectionState = "DISCONNECTED";
@@ -11,6 +13,10 @@ let clientId = null;
 const contentTabs = new Set();
 let latestState = null;
 let initialization;
+// Bumped on every connect() call so a superseded connection's async
+// onopen/onmessage/onclose handlers can recognize they're stale and avoid
+// clobbering the state of whichever connection attempt is actually current.
+let connectionGeneration = 0;
 
 const debug = (...args) => console.info("[GuguTV WS]", ...args);
 
@@ -63,14 +69,27 @@ async function leaveRoom() {
 
 function connect() {
   if (!roomId || !clientId) return;
+  const generation = ++connectionGeneration;
   setConnectionState(socket ? "RECONNECTING" : "CONNECTING");
   const url = `${DEFAULT_SERVER_URL}?room=${encodeURIComponent(roomId)}&clientId=${encodeURIComponent(clientId)}`;
   debug("connecting", { roomId, state: connectionState });
-  try { socket = new WebSocket(url); } catch (error) { scheduleReconnect(); return; }
-  socket.onopen = () => { reconnectDelay = INITIAL_BACKOFF_MS; setConnectionState("CONNECTED"); debug("connected", roomId); };
-  socket.onmessage = (message) => handleServerMessage(message.data);
-  socket.onerror = () => socket?.close();
-  socket.onclose = () => { debug("socket closed", roomId); socket = null; if (roomId) scheduleReconnect(); };
+  let ws;
+  try { ws = new WebSocket(url); } catch (error) { scheduleReconnect(); return; }
+  socket = ws;
+  ws.onopen = () => {
+    if (generation !== connectionGeneration) return;
+    reconnectDelay = INITIAL_BACKOFF_MS;
+    setConnectionState("CONNECTED");
+    debug("connected", roomId);
+  };
+  ws.onmessage = (message) => { if (generation === connectionGeneration) handleServerMessage(message.data); };
+  ws.onerror = () => ws.close();
+  ws.onclose = () => {
+    if (generation !== connectionGeneration) return; // superseded by a newer connection attempt
+    debug("socket closed", roomId);
+    socket = null;
+    if (roomId) scheduleReconnect();
+  };
 }
 
 function scheduleReconnect() {
@@ -113,4 +132,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener(tabId => contentTabs.delete(tabId));
+
+// A suspended service worker loses its in-memory reconnectTimer entirely.
+// This alarm periodically wakes the worker back up (chrome.alarms wakes even
+// a fully-suspended MV3 worker), so a stuck DISCONNECTED/CLOSED state can't
+// persist indefinitely just because nothing else happened to trigger it.
+chrome.alarms.create(HEALTH_CHECK_ALARM, { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== HEALTH_CHECK_ALARM) return;
+  initialization.then(() => {
+    if (roomId && (!socket || socket.readyState === WebSocket.CLOSED)) {
+      debug("health check: connection missing, reconnecting", roomId);
+      connect();
+    }
+  });
+});
+
 initialization = initialize();

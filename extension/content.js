@@ -38,7 +38,7 @@
       // call pause() on the raw <video> element moments after we call
       // play(), aborting our promise. That's a one-off reconciliation, not
       // a real refusal to play, so retry briefly instead of giving up.
-      for (let attempt = 0; attempt < 3 && this.video.paused; attempt++) {
+      for (let attempt = 0; attempt < 2 && this.video.paused; attempt++) {
         try { await this.video.play(); }
         catch (error) {
           if (error?.name !== "AbortError") throw error;
@@ -52,7 +52,7 @@
       // Mirrors play()'s retry: the page's own controller can resume
       // playback shortly after we pause it, so confirm it actually stuck
       // and retry briefly if it got reverted.
-      for (let attempt = 0; attempt < 3 && !this.video.paused; attempt++) {
+      for (let attempt = 0; attempt < 2 && !this.video.paused; attempt++) {
         this.video.pause();
         await new Promise(resolve => setTimeout(resolve, 150));
       }

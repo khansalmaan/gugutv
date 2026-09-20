@@ -3,7 +3,7 @@
   "name": "GuguTV",
   "version": "0.1.0",
   "description": "Synchronize HTML5 video playback with a room.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "alarms"],
   "host_permissions": ["https://gugutv.onrender.com/*"],
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html", "default_title": "GuguTV" },
