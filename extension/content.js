@@ -13,11 +13,12 @@
   const isSuppressed = () => applyingRemoteEvent || Date.now() < suppressEventsUntil;
   const makeID = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 
-  // Ads inject their own <video> seeks to these landing points (ad break
-  // markers / ad restarts). They fire only for the viewer seeing the ad, so
-  // broadcasting them yanks every other viewer's real playback position.
-  const AD_SEEK_POSITIONS = [0, 10, 15, 20, 30];
-  const isAdSeek = (type, position) => type === "SEEK" && AD_SEEK_POSITIONS.some(p => Math.abs(position - p) < 0.5);
+  // Ads drive the shared <video> element through play/pause/seek at these
+  // landing points (skip-countdown thresholds, ad restarts). They fire only
+  // for the viewer seeing the ad, so broadcasting them yanks every other
+  // viewer's real playback position.
+  const AD_BREAK_POSITIONS = [0, 10, 15, 20, 30];
+  const isAdBreakEvent = (position) => AD_BREAK_POSITIONS.some(p => Math.abs(position - p) < 0.5);
 
   function remember(id) {
     if (!id) return;
@@ -39,7 +40,7 @@
       return;
     }
     const position = new HTML5VideoAdapter(currentVideo).getPosition();
-    if (isAdSeek(type, position)) { debug("ignored likely ad seek", position); return; }
+    if (isAdBreakEvent(position)) { debug("ignored likely ad event", type, position); return; }
     const event = { id: makeID(), senderId: clientId, roomId, type, position, timestamp: Date.now() };
     debug("local", type, event.position);
     chrome.runtime.sendMessage({ kind: "LOCAL_EVENT", event }).catch(() => {});
