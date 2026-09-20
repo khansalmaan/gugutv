@@ -9,7 +9,7 @@
   "action": { "default_popup": "popup.html", "default_title": "GuguTV" },
   "content_scripts": [
     {
-      "matches": ["http://localhost:8081/*", "http://127.0.0.1:8081/*", "*://*.hotstar.com/*"],
+      "matches": ["http://localhost:8081/*", "http://127.0.0.1:8081/*", "*://*.hotstar.com/*", "*://*.primevideo.com/*", "*://*.amazon.com/gp/video/*"],
       "js": ["content.js"],
       "run_at": "document_idle",
       "all_frames": true

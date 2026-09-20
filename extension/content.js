@@ -7,7 +7,10 @@
   let clientId = null;
   let lastSequence = 0;
   let pendingEvent = null;
+  let eventQueue = Promise.resolve();
+  let pendingPlayback = null;
   const processedEvents = new Set();
+  const PLAYBACK_DEBOUNCE_MS = 400;
 
   const debug = (...args) => console.info("[GuguTV Sync]", ...args);
   const isSuppressed = () => applyingRemoteEvent || Date.now() < suppressEventsUntil;
@@ -29,9 +32,51 @@
   class HTML5VideoAdapter {
     constructor(video) { this.video = video; }
     getPosition() { return Number.isFinite(this.video.currentTime) ? this.video.currentTime : 0; }
-    async play(position) { this.video.currentTime = position; await this.video.play(); }
-    pause(position) { this.video.currentTime = position; this.video.pause(); }
+    async play(position) {
+      this.video.currentTime = position;
+      // Some players (e.g. Prime Video) run their own controller that can
+      // call pause() on the raw <video> element moments after we call
+      // play(), aborting our promise. That's a one-off reconciliation, not
+      // a real refusal to play, so retry briefly instead of giving up.
+      for (let attempt = 0; attempt < 3 && this.video.paused; attempt++) {
+        try { await this.video.play(); }
+        catch (error) {
+          if (error?.name !== "AbortError") throw error;
+          await new Promise(resolve => setTimeout(resolve, 150));
+        }
+      }
+      if (this.video.paused) console.warn("[GuguTV] remote play kept getting reverted by the page's own player");
+    }
+    async pause(position) {
+      this.video.currentTime = position;
+      // Mirrors play()'s retry: the page's own controller can resume
+      // playback shortly after we pause it, so confirm it actually stuck
+      // and retry briefly if it got reverted.
+      for (let attempt = 0; attempt < 3 && !this.video.paused; attempt++) {
+        this.video.pause();
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+      if (!this.video.paused) console.warn("[GuguTV] remote pause kept getting reverted by the page's own player");
+    }
     seek(position) { this.video.currentTime = position; }
+  }
+
+  function cancelPendingPlayback() {
+    if (!pendingPlayback) return;
+    clearTimeout(pendingPlayback.timer);
+    pendingPlayback = null;
+  }
+
+  function sendLocalEvent(type) {
+    // Re-checked here (not just in emitLocalEvent) because PLAY/PAUSE go
+    // through a debounce delay first, during which a remote event could
+    // arrive and start suppressing echoes, or the room/video could change.
+    if (!roomId || !clientId || !currentVideo || isSuppressed()) return;
+    const position = new HTML5VideoAdapter(currentVideo).getPosition();
+    if (isAdBreakEvent(position)) { debug("ignored likely ad event", type, position); return; }
+    const event = { id: makeID(), senderId: clientId, roomId, type, position, timestamp: Date.now() };
+    debug("local", type, event.position);
+    chrome.runtime.sendMessage({ kind: "LOCAL_EVENT", event }).catch(() => {});
   }
 
   function emitLocalEvent(type) {
@@ -39,11 +84,19 @@
       if (currentVideo && !isSuppressed()) debug("ignored local event; no active room or client id", type);
       return;
     }
-    const position = new HTML5VideoAdapter(currentVideo).getPosition();
-    if (isAdBreakEvent(position)) { debug("ignored likely ad event", type, position); return; }
-    const event = { id: makeID(), senderId: clientId, roomId, type, position, timestamp: Date.now() };
-    debug("local", type, event.position);
-    chrome.runtime.sendMessage({ kind: "LOCAL_EVENT", event }).catch(() => {});
+    if (type === "SEEK") { sendLocalEvent(type); return; }
+    // Some players (e.g. Prime Video) internally toggle play/pause on the raw
+    // <video> element in fast blips unrelated to the viewer (buffering or DRM
+    // re-checks). A real pause immediately reversed by a real play looks
+    // identical to one of these blips, so briefly hold PLAY/PAUSE before
+    // broadcasting; a same-position flip within the window is treated as
+    // noise and dropped instead of yanking every other viewer's playback.
+    if (pendingPlayback) {
+      const wasType = pendingPlayback.type;
+      cancelPendingPlayback();
+      if (wasType !== type) { debug("ignored transient play/pause blip", wasType, "->", type); return; }
+    }
+    pendingPlayback = { type, timer: setTimeout(() => { pendingPlayback = null; sendLocalEvent(type); }, PLAYBACK_DEBOUNCE_MS) };
   }
 
   const onPlay = () => emitLocalEvent("PLAY");
@@ -56,10 +109,21 @@
     currentVideo.removeEventListener("pause", onPause);
     currentVideo.removeEventListener("seeked", onSeeked);
     currentVideo = null;
+    cancelPendingPlayback();
+  }
+
+  function selectVideo() {
+    // Some players (e.g. Prime Video) keep extra empty <video> placeholders
+    // alongside the real player. Only elements with an actual source are
+    // candidates; among those, prefer the largest (the real player, not an
+    // ad/thumbnail slot).
+    const candidates = [...document.querySelectorAll("video")].filter(v => v.currentSrc);
+    if (!candidates.length) return null;
+    return candidates.reduce((best, v) => (v.videoWidth * v.videoHeight > best.videoWidth * best.videoHeight ? v : best));
   }
 
   function findVideo() {
-    const video = document.querySelector("video");
+    const video = selectVideo();
     if (video === currentVideo) return;
     detachVideo();
     if (!video) return;
@@ -71,7 +135,7 @@
     if (pendingEvent) {
       const event = pendingEvent;
       pendingEvent = null;
-      applyRemoteEvent(event);
+      queueRemoteEvent(event);
     }
   }
 
@@ -99,19 +163,33 @@
     const type = event.type === "STATE" ? event.playback : event.type;
     if (!["PLAY", "PAUSE", "SEEK"].includes(type)) return;
     applyingRemoteEvent = true;
-    suppressEventsUntil = Date.now() + 500;
     try {
       const adapter = new HTML5VideoAdapter(currentVideo);
       if (type === "PLAY") await adapter.play(event.position);
-      else if (type === "PAUSE") adapter.pause(event.position);
+      else if (type === "PAUSE") await adapter.pause(event.position);
       else adapter.seek(event.position);
       debug("remote", type, event.position);
     } catch (error) { console.warn("[GuguTV] remote playback action failed", error); }
-    finally { applyingRemoteEvent = false; }
+    finally {
+      applyingRemoteEvent = false;
+      // play()/pause() may have spent up to ~450ms retrying against the
+      // page's own controller; start the echo-suppression window now, not
+      // before the retries, so trailing native events right after we
+      // finish are still covered.
+      suppressEventsUntil = Date.now() + 500;
+    }
+  }
+
+  // Remote PLAY/PAUSE/SEEK arrive as separate async messages. Applying them
+  // concurrently lets a later pause() abort an in-flight play() (AbortError)
+  // and leave playback in whatever order the promises happened to settle,
+  // so each one is queued to run only after the previous one fully finishes.
+  function queueRemoteEvent(event) {
+    eventQueue = eventQueue.then(() => applyRemoteEvent(event));
   }
 
   chrome.runtime.onMessage.addListener((message) => {
-    if (message?.kind === "REMOTE_EVENT") applyRemoteEvent(message.event);
+    if (message?.kind === "REMOTE_EVENT") queueRemoteEvent(message.event);
     if (message?.kind === "CONNECTION_STATUS") changeRoom(message.roomId || null);
   });
 
@@ -119,8 +197,12 @@
     changeRoom(status?.roomId || null);
     clientId = status?.clientId || null;
     debug("ready", { roomId, clientId });
-    if (status?.latestEvent) applyRemoteEvent(status.latestEvent);
+    if (status?.latestEvent) queueRemoteEvent(status.latestEvent);
   }).catch(() => {});
   new MutationObserver(findVideo).observe(document.documentElement, { childList: true, subtree: true });
+  // The real <video> element's `src` can populate asynchronously without a
+  // DOM mutation the observer above would see (e.g. Prime Video setting a
+  // blob URL on an already-present element), so also poll briefly.
+  setInterval(findVideo, 1000);
   findVideo();
 })();
