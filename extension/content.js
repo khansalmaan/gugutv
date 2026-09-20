@@ -16,12 +16,15 @@
   const isSuppressed = () => applyingRemoteEvent || Date.now() < suppressEventsUntil;
   const makeID = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 
-  // Ads drive the shared <video> element through play/pause/seek at these
-  // landing points (skip-countdown thresholds, ad restarts). They fire only
-  // for the viewer seeing the ad, so broadcasting them yanks every other
-  // viewer's real playback position.
-  const AD_BREAK_POSITIONS = [0, 10, 15, 20, 30];
-  const isAdBreakEvent = (position) => AD_BREAK_POSITIONS.some(p => Math.abs(position - p) < 0.5);
+  // The first few minutes of a video's timeline are the least trustworthy to
+  // sync: ads land on early landing points (0/10/15/20/30s), and a trailer
+  // or preview can still be attached to (or briefly race with the real
+  // player, see selectVideo()). Rather than chase every individual case,
+  // ignore any event under this mark outright — trailers/previews run a
+  // couple of minutes at most, so real content is essentially never
+  // legitimately paused/sought/played this early.
+  const MIN_SYNC_POSITION_SECONDS = 120;
+  const isUnsyncedPosition = (position) => position < MIN_SYNC_POSITION_SECONDS;
 
   // If the extension is reloaded/updated while this tab is already open, the
   // content script's channel to the background script is permanently severed
@@ -59,7 +62,7 @@
       // call pause() on the raw <video> element moments after we call
       // play(), aborting our promise. That's a one-off reconciliation, not
       // a real refusal to play, so retry briefly instead of giving up.
-      for (let attempt = 0; attempt < 2 && this.video.paused; attempt++) {
+      for (let attempt = 0; attempt < 3 && this.video.paused; attempt++) {
         try { await this.video.play(); }
         catch (error) {
           if (error?.name !== "AbortError") throw error;
@@ -73,7 +76,7 @@
       // Mirrors play()'s retry: the page's own controller can resume
       // playback shortly after we pause it, so confirm it actually stuck
       // and retry briefly if it got reverted.
-      for (let attempt = 0; attempt < 2 && !this.video.paused; attempt++) {
+      for (let attempt = 0; attempt < 3 && !this.video.paused; attempt++) {
         this.video.pause();
         await new Promise(resolve => setTimeout(resolve, 150));
       }
@@ -94,7 +97,7 @@
     // arrive and start suppressing echoes, or the room/video could change.
     if (!roomId || !clientId || !currentVideo || isSuppressed()) return;
     const position = new HTML5VideoAdapter(currentVideo).getPosition();
-    if (isAdBreakEvent(position)) { debug("ignored likely ad event", type, position); return; }
+    if (isUnsyncedPosition(position)) { debug("ignored event before the 2-minute mark", type, position); return; }
     const event = { id: makeID(), senderId: clientId, roomId, type, position, timestamp: Date.now() };
     debug("local", type, event.position);
     chrome.runtime.sendMessage({ kind: "LOCAL_EVENT", event }).catch(showReloadNeededBanner);
